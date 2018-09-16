@@ -1,5 +1,6 @@
 #!/bin/bash
-# Simple shell script install libhoard
+# TODO:
+# Simple shell script install *** TBD  ***
 # Authors: Kiran Thirumalai <kiran@scalemp.com>
 #	   Josh Hunt <josh@scalemp.com>
 #	   David Cho <david@scalemp.com>
@@ -69,15 +70,80 @@ pre() {
 #		return $RET_INST_INST
 #	fi
 
-	return $RET_INST_NOT
+    # TODO: Need to add a test we are on RHEL7
+
+    if [ $(cat /proc/sys/kernel/sched_domain/cpu0/domain*/name | egrep -c -e "NUMA|ALL") -lt 2 ]; then
+        local msg="Scheduler Domain tree does not require changes."
+		echo "$msg"
+		echo "$msg" > $SYSTEM_MSG
+		return $RET_INST_NOT_SUPP
+    else
+        return $RET_INST_NOT
+    fi
+
 }
 
 #################################################################
 # INSTALLATION
 #################################################################
-install() {
-	echo "Installing $appname:"
 
+calc_new_flags_value() {
+    local flag_action=$1
+    local current_flags_settings=$2
+    local flag_to_change=$3
+
+    local return_value=0
+
+    if [ "${flag_action}" = 'set' ]; then
+        return_value=$((current_flags_settings |  flag_to_change))
+    elif [ "${flag_action}" = 'clear' ]; then
+        return_value=$((current_flags_settings & ~flag_to_change))
+    else
+        # should never reach here unless someone changes the code the wrong way, so at least catch it early.
+        echo "Wrong flag_action parameter: $flag_action"
+        exit 1
+    fi
+
+    echo "${return_value}"
+
+}
+
+install() {
+    echo "Installing $appname:"
+
+    num_cpus=$(grep -c processor /proc/cpuinfo)
+    SD_LOAD_BALANCE=$((0x0001))
+    SD_BALANCE_NEWIDLE=$((0x0002))
+    SD_SERIALIZE=$((0x0400))
+
+    # TODO: The following is never used
+    domains=$(ls /proc/sys/kernel/sched_domain/cpu0 | wc -l)
+
+    system_domain=$(ls /proc/sys/kernel/sched_domain/cpu0 | tail -n 1)
+    board_domain=$(ls /proc/sys/kernel/sched_domain/cpu0 | tail -n 2 | head -n 1)
+
+    for cpu in $(seq 0 $((num_cpus-1))) ; do
+        cur_flags=$(cat /proc/sys/kernel/sched_domain/cpu$cpu/$system_domain/flags)
+        sys_dom_flags=$((SD_BALANCE_NEWIDLE | SD_SERIALIZE))
+        upd_flags=$(calc_new_flags_value clear ${cur_flags} ${sys_dom_flags})
+
+        # TODO: Need to add debug printings for the tow methods. Confirm it match and reversible.
+
+#        echo "Changing system domain flags on CPU $cpu from $FLAGS to $((FLAGS & ~SD_BALANCE_NEWIDLE))"
+#        sudo bash -c "echo $((FLAGS & ~SD_BALANCE_NEWIDLE)) >/proc/sys/kernel/sched_domain/cpu$cpu/$system_domain/flags"
+#
+#        FLAGS=$(cat /proc/sys/kernel/sched_domain/cpu$cpu/$system_domain/flags)
+#        echo "Changing system domain flags on CPU $cpu from $FLAGS to $((FLAGS & ~SD_SERIALIZE))"
+#        sudo bash -c "echo $((FLAGS & ~SD_SERIALIZE)) >/proc/sys/kernel/sched_domain/cpu$cpu/$system_domain/flags"
+
+        cur_flags=$(cat /proc/sys/kernel/sched_domain/cpu$cpu/$board_domain/flags)
+        upd_flags=$(calc_new_flags_value clear ${cur_flags} ${SD_SERIALIZE})
+
+
+#        FLAGS=$(cat /proc/sys/kernel/sched_domain/cpu$cpu/$board_domain/flags)
+#        echo "Changing board  domain flags on CPU $cpu from $FLAGS to $((FLAGS & ~SD_SERIALIZE))"
+#        sudo bash -c "echo $((FLAGS & ~SD_SERIALIZE)) >/proc/sys/kernel/sched_domain/cpu$cpu/$board_domain/flags"
+    done
 
 	return $RET_INST_SUCCESS
 
@@ -98,8 +164,8 @@ uninstall() {
 
 	echo "Uninstalling $appname:"
 
-	check_list
-
+#	check_list
+#
 #	#if some of the RPMs are missing we should remove them from the RPM list to remove
 #	if [ -n "$INSTALL_LIST" ]; then
 #
