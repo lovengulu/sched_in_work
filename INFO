@@ -1,0 +1,13 @@
+PKGNAME=examples
+PKGVER=2.0
+PKGREL=01
+PKGDEP=""
+PKGDEPVER=""
+PKGVSMPPPDEPVER="2.0"
+PKGDEFSTATE="on"
+PKGCATEGORY=INSTALL
+PKGDESC="Application Examples"
+PKGPRIORITY=600
+PKGHELP="These examples contain a variety of different application patterns (e.g. Serial Job, OpenMP, MPI, etc..) with source and run scripts."
+PKGDISTRO=""
+PACKAGEMD5SUM=5a59ed75cfa488896dac617847e109b8
