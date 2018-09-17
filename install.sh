@@ -72,7 +72,7 @@ pre() {
 #		return $RET_INST_INST
 #	fi
 
-    # TODO: Shai commented that need test we are on RHEL7. Actually not clear why.
+    # TODO: Shai commented that need test we are on RHEL7. Actually not clear why???
 
     if [ $(cat /proc/sys/kernel/sched_domain/cpu0/domain*/name | egrep -c -e "NUMA|ALL") -lt 2 ]; then
         local msg="Scheduler Domain tree does not require changes."
@@ -111,6 +111,10 @@ calc_new_flags_value() {
 }
 
 change_all_bits() {
+    echo TBD
+}
+
+test_temporary_tune() {
     # change_all_bits manipulates flag's bits.
     # Input:
     #   bits_action: as required by calc_new_flags_value()
@@ -118,21 +122,16 @@ change_all_bits() {
     bits_action=$1
 
     NUM_CPUS=$(grep -c processor /proc/cpuinfo)
-    # TODO: SD_LOAD_BALANCE not used - ask tal.
+    # Currently we are not SD_LOAD_BALANCE for various reasons. may consider again later.
     SD_LOAD_BALANCE=$((0x0001))
     SD_BALANCE_NEWIDLE=$((0x0002))
     SD_SERIALIZE=$((0x0400))
-
-
-    # TODO: 'domains' is never used - confirm again
-    domains=$(ls /proc/sys/kernel/sched_domain/cpu0 | wc -l)
 
     system_domain=$(ls /proc/sys/kernel/sched_domain/cpu0 | tail -n 1)
     board_domain=$(ls /proc/sys/kernel/sched_domain/cpu0 | tail -n 2 | head -n 1)
 
     for cpu in $(seq 0 $((NUM_CPUS-1))) ; do
         cur_flags=$(cat /proc/sys/kernel/sched_domain/cpu$cpu/$system_domain/flags)
-        # TODO - tal touched the same domain in two step. Verify that he actually intended the same domain and not a typo.
         sys_dom_flags=$((SD_BALANCE_NEWIDLE | SD_SERIALIZE))
         upd_flags=$(calc_new_flags_value ${bits_action} ${cur_flags} ${sys_dom_flags})
 
@@ -140,21 +139,15 @@ change_all_bits() {
         cur_flags0=$cur_flags
         upd_flags0=$upd_flags
 
-#        echo "Changing system domain flags on CPU $cpu from $FLAGS to $((FLAGS & ~SD_BALANCE_NEWIDLE))"
-#        sudo bash -c "echo $((FLAGS & ~SD_BALANCE_NEWIDLE)) >/proc/sys/kernel/sched_domain/cpu$cpu/$system_domain/flags"
-#
-#        FLAGS=$(cat /proc/sys/kernel/sched_domain/cpu$cpu/$system_domain/flags)
-#        echo "Changing system domain flags on CPU $cpu from $FLAGS to $((FLAGS & ~SD_SERIALIZE))"
-#        sudo bash -c "echo $((FLAGS & ~SD_SERIALIZE)) >/proc/sys/kernel/sched_domain/cpu$cpu/$system_domain/flags"
 
         cur_flags=$(cat /proc/sys/kernel/sched_domain/cpu$cpu/$board_domain/flags)
         upd_flags=$(calc_new_flags_value ${bits_action} ${cur_flags} ${SD_SERIALIZE})
 
-        printf "0x%x " $SD_SERIALIZE
 
+        # TODO: DEBUG START section
         printf "DEBUG: %03d  0x%x -> 0x%x ; 0x%x -> 0x%x  \n" $cpu $cur_flags0 $upd_flags0 $cur_flags $upd_flags
-
         exit
+        # TODO: DEBUG  END  section
 
 #        FLAGS=$(cat /proc/sys/kernel/sched_domain/cpu$cpu/$board_domain/flags)
 #        echo "Changing board  domain flags on CPU $cpu from $FLAGS to $((FLAGS & ~SD_SERIALIZE))"
@@ -177,48 +170,14 @@ install() {
 
 post() {
 	echo "Install of $appname is complete."
+	# TODO: if changing via sysctl, the return message should be that need to reboot in order for the change to have impact.
 	return $RET_POST_SUCCESS
 }
 
 uninstall() {
 
-#	UNINSTALL_LIST="$RPM_LIST"
-
 	echo "Uninstalling $appname:"
 
-#	check_list
-#
-#	#if some of the RPMs are missing we should remove them from the RPM list to remove
-#	if [ -n "$INSTALL_LIST" ]; then
-#
-#		for rpm in "$INSTALL_LIST"
-#		do
-#			UNINSTALL_LIST="$(echo $UNINSTALL_LIST | sed 's/'"$rpm"'//')"
-#		done
-#
-#		#if the list is empty we should return "already installed"
-#		if [ -z "$UNINSTALL_LIST" ]; then
-#			echo "already uninstalled"
-#			return $RET_UNINST_UNINST
-#		fi
-#
-#		echo "Missing the following RPMs: [$INSTALL_LIST]. Trying to remove the rest of the RPMs (if any left)"
-#	fi
-#
-#	echo "removing [$UNINSTALL_LIST]"
-#	rpm -e $(echo $UNINSTALL_LIST | sed 's/.x86_64.rpm//g') > /dev/null 2>&1
-#
-#	if [ "$?" -ne "0" ]; then
-#
-#		local msg1="$(
-#				echo "There were problems uninstalling the $appname RPMs."
-#				echo "Please try and remove them manually."
-#			)"
-#		echo "$msg1"
-#		echo "$msg1" > $SYSTEM_MSG
-#
-#		return $RET_UNINST_FAIL
-#	fi
 
 	echo "Uninstall of $appname is complete."
 	return $RET_UNINST_SUCCESS
@@ -228,6 +187,7 @@ case "$1" in
 	"pre"		) pre $2;;
 	"install"	) install $2;;
 	"post"		) post $2;;
+	"test"      ) test_temporary_tune;;
 	"uninstall"	) uninstall;;
 	*		)
 			  pre
