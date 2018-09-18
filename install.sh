@@ -40,7 +40,6 @@ pre() {
 		return $RET_INST_NOT_SUPP
     fi
 
-    # DONE - TODO: I think that I need to call here set_changes_arrays() than to use prep_sysctl_params()
     set_changes_arrays
 	prep_sysctl_params
 	if [ -z "$CHANGE_LIST" ]; then
@@ -156,7 +155,7 @@ set_changes_arrays() {
         VALUE+=(${upd_flags})
 
         # TODO: DEBUG START section
-        printf "DEBUG: %03d  0x%x -> 0x%x ; 0x%x -> 0x%x  \n" $cpu $cur_flags0 $upd_flags0 $cur_flags $upd_flags
+        #printf "DEBUG: %03d  0x%x -> 0x%x ; 0x%x -> 0x%x  \n" $cpu $cur_flags0 $upd_flags0 $cur_flags $upd_flags
         #exit
         # TODO: DEBUG  END  section
 
@@ -182,10 +181,9 @@ install() {
     echo "Installing $appname:"
 
 
-    echo "DEBUG1"; set_changes_arrays clear
-    echo "DEBUG2"; prep_sysctl_params
-    echo "DEBUG3"; set_sysctl_params
-    # TODO: add here the conf file changes. Need to test If passed correctly ???
+    set_changes_arrays clear
+    prep_sysctl_params
+    set_sysctl_params
     immediate_flags_change clear
 
 	return $RET_INST_SUCCESS
@@ -198,7 +196,6 @@ install() {
 
 post() {
 	echo "Install of $appname is complete."
-	# TODO: if changing via sysctl, the return message should be that need to reboot in order for the change to have impact.
 	return $RET_POST_SUCCESS
 }
 
@@ -226,6 +223,7 @@ case "$1" in
 	"pre"		) pre $2;;
 	"install"	) install $2;;
 	"post"		) post $2;;
+	            # temporary() sets the flags for enhancements testing without 'sysctl'. So changes gone once we reboot
 	"temporary" ) temporary;;
 	"uninstall"	) uninstall;;
 	*		)
