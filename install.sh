@@ -1,6 +1,5 @@
 #!/bin/bash
-# TODO:
-# Simple shell script install *** TBD  ***
+# Simple shell script install *** TBD  *** #TODO !!!
 # Authors: Kiran Thirumalai <kiran@scalemp.com>
 #	   Josh Hunt <josh@scalemp.com>
 #	   David Cho <david@scalemp.com>
@@ -17,29 +16,6 @@ source ../functions
 
 appname=examples_TBD
 
-
-
-#DV=2.0-090212
-#appname=examples
-#RPM_LIST="$appname-$DV.x86_64.rpm"
-#
-#INSTALL_LIST=""
-#
-#check_list() {
-#
-#	INSTALL_LIST=""
-#	for x in $(echo $RPM_LIST | sed 's/.x86_64.rpm//g')
-#	do
-#		# Check if rpm is already installed?
-#		rpm -q $x > /dev/null 2>&1
-#
-#		if [ "$?" -ne "0" ]; then
-#			INSTALL_LIST="$INSTALL_LIST $x.x86_64.rpm"
-#		fi
-#	done
-#
-#}
-
 #################################################################
 # PRE INSTALL CHECK
 #################################################################
@@ -55,23 +31,6 @@ pre() {
             uninstall
     fi
 
-
-#	# Check to see if the rpms in the list are already installed.  If
-#	# they are, then we just return back with a msg and the user can
-#	# choose if they would like to force install of all the packages
-#
-#	#check_list
-#
-#	if [ -z "$INSTALL_LIST" ]; then
-#		local msg="$(
-#				echo "All $appname packages are up to date."
-#				echo "Skipping install."
-#			)"
-#
-#		echo "$msg"
-#		return $RET_INST_INST
-#	fi
-
     # TODO: Shai commented that need test we are on RHEL7. Actually not clear why???
 
     if [ $(cat /proc/sys/kernel/sched_domain/cpu0/domain*/name | egrep -c -e "NUMA|ALL") -lt 2 ]; then
@@ -79,14 +38,30 @@ pre() {
 		echo "$msg"
 		echo "$msg" > $SYSTEM_MSG
 		return $RET_INST_NOT_SUPP
-    else
-        return $RET_INST_NOT
     fi
+
+    # DONE - TODO: I think that I need to call here set_changes_arrays() than to use prep_sysctl_params()
+    set_changes_arrays
+	prep_sysctl_params
+	if [ -z "$CHANGE_LIST" ]; then
+		# If the list is empty this means the parameters already
+		# have the correct value
+		local msg="$(
+				echo
+				echo "The $appname sysctl parameters are already correctly set."
+				echo "Installation will be skipped."
+				echo
+			)"
+
+		echo "$msg"
+		return $RET_INST_INST
+	fi
+	return $RET_INST_NOT
 
 }
 
 #################################################################
-# INSTALLATION
+# utils functions
 #################################################################
 
 calc_new_flags_value() {
@@ -101,8 +76,8 @@ calc_new_flags_value() {
     elif [ "${flag_action}" = 'clear' ]; then
         return_value=$((current_flags_settings & ~flag_to_change))
     else
-        # should never reach here unless someone changes the code the wrong way, so at least catch it early.
-        echo "Wrong flag_action parameter: $flag_action"
+	    # If we get it, it is a coding bug. exit so it easy to find and fix.
+        echo "ERROR: calc_new_flags_value() requires one mandatory parameter: [ set | clear ]. Entered: $flag_action"
         exit 1
     fi
 
@@ -110,16 +85,38 @@ calc_new_flags_value() {
 
 }
 
-change_all_bits() {
-    echo TBD
+
+immediate_flags_change() {
+    # using the pre-set arrays (PARAMETER & VALUE), change the flags.
+    # IMPORTANT: the flags change is thought the file system, so all changes are gone once system reboots.
+
+    for idx in $(seq 0 $(( ${#PARAMETER[@]} - 1 ))); do
+        printf "DEBUG Changing:  %-40s %6x => %6x \n" ${PARAMETER[${idx}]}  ${ORIG_VALUE[${idx}]} ${VALUE[${idx}]}
+
+        dest_file=$(echo "/proc/sys/${PARAMETER[${idx}]}" | tr '.' '/')
+        echo "DEBUG: echo ${VALUE[${idx}]} > ${dest_file}"
+        # TODO: don't forget to perform here the actual change
+    done
+
+    # TODO - consider again if return value is required.
+
 }
 
-test_temporary_tune() {
-    # change_all_bits manipulates flag's bits.
+set_changes_arrays() {
+    # create three arrays of the 'sysctl' parameters to revise: PARAMETER, VALUE, & ORIG_VALUE
+    # Those arrays are used (or may be used) for debugging, logging and assisting in actual
+
     # Input:
     #   bits_action: as required by calc_new_flags_value()
 
     bits_action=$1
+
+	if [ -z "$bits_action" ]; then
+	    # If we get it, it is a coding bug. exit so it easy to find and fix.
+        echo "ERROR: set_changes_arrays() requires one mandatory parameter"
+        exit 1
+	fi
+
 
     NUM_CPUS=$(grep -c processor /proc/cpuinfo)
     # Currently we are not SD_LOAD_BALANCE for various reasons. may consider again later.
@@ -130,10 +127,21 @@ test_temporary_tune() {
     system_domain=$(ls /proc/sys/kernel/sched_domain/cpu0 | tail -n 1)
     board_domain=$(ls /proc/sys/kernel/sched_domain/cpu0 | tail -n 2 | head -n 1)
 
+    # The following arrays assist for setting the parameters using 'sysctl'
+    PARAMETER=()
+    VALUE=()
+    # ORIG_VALUE is for debugging only.
+    ORIG_VALUE=()
+    CHANGE_LIST=""
+
     for cpu in $(seq 0 $((NUM_CPUS-1))) ; do
         cur_flags=$(cat /proc/sys/kernel/sched_domain/cpu$cpu/$system_domain/flags)
         sys_dom_flags=$((SD_BALANCE_NEWIDLE | SD_SERIALIZE))
         upd_flags=$(calc_new_flags_value ${bits_action} ${cur_flags} ${sys_dom_flags})
+
+        PARAMETER+=(kernel.sched_domain.cpu$cpu.$system_domain.flags)
+        ORIG_VALUE+=(${cur_flags})
+        VALUE+=(${upd_flags})
 
         #TODO: DEBUG: only
         cur_flags0=$cur_flags
@@ -143,22 +151,42 @@ test_temporary_tune() {
         cur_flags=$(cat /proc/sys/kernel/sched_domain/cpu$cpu/$board_domain/flags)
         upd_flags=$(calc_new_flags_value ${bits_action} ${cur_flags} ${SD_SERIALIZE})
 
+        PARAMETER+=(kernel.sched_domain.cpu$cpu.$board_domain.flags)
+        ORIG_VALUE+=(${cur_flags})
+        VALUE+=(${upd_flags})
 
         # TODO: DEBUG START section
         printf "DEBUG: %03d  0x%x -> 0x%x ; 0x%x -> 0x%x  \n" $cpu $cur_flags0 $upd_flags0 $cur_flags $upd_flags
-        exit
+        #exit
         # TODO: DEBUG  END  section
 
-#        FLAGS=$(cat /proc/sys/kernel/sched_domain/cpu$cpu/$board_domain/flags)
-#        echo "Changing board  domain flags on CPU $cpu from $FLAGS to $((FLAGS & ~SD_SERIALIZE))"
-#        sudo bash -c "echo $((FLAGS & ~SD_SERIALIZE)) >/proc/sys/kernel/sched_domain/cpu$cpu/$board_domain/flags"
     done
 }
 
+
+temporary() {
+    # perform temporary flags change (via file system)
+    # input - as required by calc_new_flags_value(). Default: 'clear'
+    temporary_action=${1:-clear}
+
+    set_changes_arrays ${temporary_action}
+    immediate_flags_change ${temporary_action}
+
+}
+#################################################################
+# INSTALLATION
+#################################################################
+
 install() {
+
     echo "Installing $appname:"
 
-    change_all_bits clear
+
+    echo "DEBUG1"; set_changes_arrays clear
+    echo "DEBUG2"; prep_sysctl_params
+    echo "DEBUG3"; set_sysctl_params
+    # TODO: add here the conf file changes. Need to test If passed correctly ???
+    immediate_flags_change clear
 
 	return $RET_INST_SUCCESS
 
@@ -176,18 +204,29 @@ post() {
 
 uninstall() {
 
-	echo "Uninstalling $appname:"
+	echo "Reverting $appname settings:"
+	set_changes_arrays clear
+	undo_sysctl_params
+	if [ "$?" -ne "0" ]; then
+		echo "Problem with reverting $appname  settings."
+		echo "There was a problem reverting the $appname setting.  You may revert it by manually editing /etc/sysctl.conf"
+		return $RET_UNINST_UNINST
+    else
+        # undo_sysctl_params() can leave many empty lines. If at EOF easy to remove them.
+        file_with_no_empty_lines_at_eof=$(</etc/sysctl.conf)
+        printf '%s\n' "${file_with_no_empty_lines_at_eof}" > /etc/sysctl.conf
+	fi
 
-
-	echo "Uninstall of $appname is complete."
+	echo "$appname settings reverted successfully."
 	return $RET_UNINST_SUCCESS
 }
+
 
 case "$1" in
 	"pre"		) pre $2;;
 	"install"	) install $2;;
 	"post"		) post $2;;
-	"test"      ) test_temporary_tune;;
+	"temporary" ) temporary;;
 	"uninstall"	) uninstall;;
 	*		)
 			  pre
